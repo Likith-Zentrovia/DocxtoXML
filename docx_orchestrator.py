@@ -123,12 +123,12 @@ class DocxOrchestrator:
         self.generator = DocBookGenerator(
             use_rittdoc_dtd=True,
             include_bookinfo=True,
-            multimedia_prefix="MultiMedia/"
+            multimedia_prefix="multimedia/"
         )
         
         self.packager = PackageGenerator(
             book_filename="Book.xml",
-            multimedia_folder="MultiMedia",
+            multimedia_folder="multimedia",
             include_metadata_csv=True
         )
 
@@ -197,12 +197,12 @@ class DocxOrchestrator:
             if self.verbose:
                 print(f"  - XML written to: {xml_path}")
             
-            # Step 3: Save images to MultiMedia folder
+            # Step 3: Save images to multimedia folder
             if content.images:
                 if self.verbose:
-                    print(f"\nStep 3: Saving images to MultiMedia folder...")
+                    print(f"\nStep 3: Saving images to multimedia folder...")
                 
-                multimedia_dir = output_dir / f"{stem}_MultiMedia"
+                multimedia_dir = output_dir / f"{stem}_multimedia"
                 saved_paths = save_images_to_folder(content.images, multimedia_dir)
                 result.multimedia_dir = str(multimedia_dir)
                 

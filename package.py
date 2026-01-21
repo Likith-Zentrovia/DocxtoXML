@@ -7,7 +7,7 @@ DocBook XML and extracted media files.
 
 The package structure matches the PDF to XML pipeline output:
 - Book.xml (main DocBook file)
-- MultiMedia/ (extracted images)
+- multimedia/ (extracted images)
 - metadata.csv (optional metadata)
 """
 
@@ -81,7 +81,7 @@ class PackageGenerator:
     
     The package structure:
     - Book.xml (or custom root name)
-    - MultiMedia/
+    - multimedia/
       - img_0001.png
       - img_0002.jpg
       - ...
@@ -91,7 +91,7 @@ class PackageGenerator:
     def __init__(
         self,
         book_filename: str = "Book.xml",
-        multimedia_folder: str = "MultiMedia",
+        multimedia_folder: str = "multimedia",
         include_metadata_csv: bool = True
     ):
         """
@@ -140,7 +140,7 @@ class PackageGenerator:
                 result.files_included.append(self.book_filename)
                 result.xml_size = len(xml_bytes)
                 
-                # Add images to MultiMedia folder
+                # Add images to multimedia folder
                 image_metadata = []
                 for i, img in enumerate(images, 1):
                     img_path = f"{self.multimedia_folder}/{img.filename}"

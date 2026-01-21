@@ -269,9 +269,15 @@ class DocxExtractor:
         # Track current position for image placement
         image_positions = self._map_image_positions(doc)
 
+        # Create a mapping from relationship IDs to image indices
+        rel_to_image_idx = self._map_rel_ids_to_images(doc, content.images)
+
         # Build lookup dictionaries for O(1) access (fixes O(n²) performance issue)
         para_lookup = {para._element: para for para in doc.paragraphs}
         table_lookup = {table._element: table for table in doc.tables}
+
+        # Track which paragraph index we're at (for image position mapping)
+        para_index = 0
 
         # Process each element in order
         element_count = 0
@@ -293,6 +299,18 @@ class DocxExtractor:
                         para = None
 
                 if para is not None:
+                    # Check for inline images in this paragraph
+                    if self.extract_images and para_index in image_positions:
+                        rel_ids = image_positions[para_index]
+                        for rel_id in rel_ids:
+                            if rel_id in rel_to_image_idx:
+                                img_idx = rel_to_image_idx[rel_id]
+                                # Add image marker
+                                content.text_blocks.append(TextBlock(
+                                    text=f"[[IMAGE_{img_idx + 1}]]",
+                                    style="ImageMarker"
+                                ))
+
                     block = self._extract_paragraph(para, image_positions)
                     if block and (block.text.strip() or block.list_type):
                         content.text_blocks.append(block)
@@ -300,6 +318,8 @@ class DocxExtractor:
                         # Check for chapter/section boundaries
                         if block.level >= 1:
                             self._track_chapter(content, block)
+
+                    para_index += 1
 
             elif tag == 'tbl':
                 # Table - use O(1) lookup instead of O(n) search
@@ -323,6 +343,38 @@ class DocxExtractor:
                                 text=f"[[TABLE_{self._table_counter}]]",
                                 style="TableMarker"
                             ))
+
+    def _map_rel_ids_to_images(self, doc: DocumentType, images: List[ExtractedImage]) -> Dict[str, int]:
+        """Map relationship IDs to image indices in the images list."""
+        rel_to_idx = {}
+
+        try:
+            # Get the document's relationship part
+            rels = doc.part.rels
+
+            # Build a mapping from image filename (in media folder) to index
+            image_filenames = {}
+            for idx, img in enumerate(images):
+                # The filename in images is like "img_0001.png", we need to match against media filenames
+                image_filenames[img.filename] = idx
+
+            # Map relationship IDs to indices
+            for rel_id, rel in rels.items():
+                if hasattr(rel, 'target_part') and rel.target_part:
+                    target = rel.target_part
+                    if hasattr(target, 'partname') and '/media/' in str(target.partname):
+                        # Extract the media filename
+                        media_name = str(target.partname).split('/')[-1]
+                        # Find matching image by extension and order
+                        ext = Path(media_name).suffix.lower()
+                        for fname, idx in image_filenames.items():
+                            if fname.endswith(ext) and idx not in rel_to_idx.values():
+                                rel_to_idx[rel_id] = idx
+                                break
+        except Exception as e:
+            print(f"Warning: Could not map relationship IDs to images: {e}")
+
+        return rel_to_idx
 
     def _get_paragraph_from_element(self, doc: DocumentType, element) -> Optional[Paragraph]:
         """Get Paragraph object from XML element."""
