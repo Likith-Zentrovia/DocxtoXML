@@ -263,86 +263,69 @@ class DocxExtractor:
     def _process_document_body(self, doc: DocumentType, content: DocxContent):
         """Process the document body extracting text blocks and tables."""
 
-        # Get the document body
-        body = doc.element.body
-
         # Track current position for image placement
         image_positions = self._map_image_positions(doc)
 
         # Create a mapping from relationship IDs to image indices
         rel_to_image_idx = self._map_rel_ids_to_images(doc, content.images)
 
-        # Build lookup dictionaries for O(1) access (fixes O(n²) performance issue)
-        para_lookup = {para._element: para for para in doc.paragraphs}
-        table_lookup = {table._element: table for table in doc.tables}
+        # Process paragraphs directly from doc.paragraphs for reliability
+        print(f"  - Processing {len(doc.paragraphs)} paragraphs...")
 
-        # Track which paragraph index we're at (for image position mapping)
-        para_index = 0
+        for para_index, para in enumerate(doc.paragraphs):
+            if para_index > 0 and para_index % 500 == 0:
+                print(f"  - Processing paragraph {para_index}...")
 
-        # Process each element in order
-        element_count = 0
-        for element in body:
-            element_count += 1
-            if element_count % 500 == 0:
-                print(f"  - Processing element {element_count}...")
+            # Check for inline images in this paragraph
+            if self.extract_images and para_index in image_positions:
+                rel_ids = image_positions[para_index]
+                for rel_id in rel_ids:
+                    if rel_id in rel_to_image_idx:
+                        img_idx = rel_to_image_idx[rel_id]
+                        # Add image marker
+                        content.text_blocks.append(TextBlock(
+                            text=f"[[IMAGE_{img_idx + 1}]]",
+                            style="ImageMarker"
+                        ))
 
-            tag = element.tag.split('}')[-1] if '}' in element.tag else element.tag
+            block = self._extract_paragraph(para, image_positions)
+            if block and (block.text.strip() or block.list_type):
+                content.text_blocks.append(block)
 
-            if tag == 'p':
-                # Paragraph - use O(1) lookup instead of O(n) search
-                para = para_lookup.get(element)
-                if para is None:
-                    # Fallback: create a new Paragraph wrapper
-                    try:
-                        para = Paragraph(element, doc)
-                    except Exception:
-                        para = None
+                # Check for chapter/section boundaries
+                if block.level >= 1:
+                    self._track_chapter(content, block)
 
-                if para is not None:
-                    # Check for inline images in this paragraph
-                    if self.extract_images and para_index in image_positions:
-                        rel_ids = image_positions[para_index]
-                        for rel_id in rel_ids:
-                            if rel_id in rel_to_image_idx:
-                                img_idx = rel_to_image_idx[rel_id]
-                                # Add image marker
-                                content.text_blocks.append(TextBlock(
-                                    text=f"[[IMAGE_{img_idx + 1}]]",
-                                    style="ImageMarker"
-                                ))
+        # Process tables separately
+        if self.extract_tables:
+            print(f"  - Processing {len(doc.tables)} tables...")
 
-                    block = self._extract_paragraph(para, image_positions)
-                    if block and (block.text.strip() or block.list_type):
-                        content.text_blocks.append(block)
+            # Build a set of table element IDs for position tracking
+            table_positions = {}
+            body = doc.element.body
+            table_idx = 0
+            para_count = 0
 
-                        # Check for chapter/section boundaries
-                        if block.level >= 1:
-                            self._track_chapter(content, block)
+            for element in body:
+                tag = element.tag.split('}')[-1] if '}' in element.tag else element.tag
+                if tag == 'p':
+                    para_count += 1
+                elif tag == 'tbl':
+                    table_positions[table_idx] = para_count
+                    table_idx += 1
 
-                    para_index += 1
+            # Process each table
+            for idx, table in enumerate(doc.tables):
+                extracted_table = self._extract_table(table)
+                if extracted_table and extracted_table.rows:
+                    content.tables.append(extracted_table)
+                    self._table_counter += 1
 
-            elif tag == 'tbl':
-                # Table - use O(1) lookup instead of O(n) search
-                if self.extract_tables:
-                    table = table_lookup.get(element)
-                    if table is None:
-                        # Fallback: create a new Table wrapper
-                        try:
-                            table = Table(element, doc)
-                        except Exception:
-                            table = None
-
-                    if table is not None:
-                        extracted_table = self._extract_table(table)
-                        if extracted_table and extracted_table.rows:
-                            content.tables.append(extracted_table)
-                            self._table_counter += 1
-
-                            # Add a marker in text blocks
-                            content.text_blocks.append(TextBlock(
-                                text=f"[[TABLE_{self._table_counter}]]",
-                                style="TableMarker"
-                            ))
+                    # Add a marker in text blocks at the appropriate position
+                    content.text_blocks.append(TextBlock(
+                        text=f"[[TABLE_{self._table_counter}]]",
+                        style="TableMarker"
+                    ))
 
     def _map_rel_ids_to_images(self, doc: DocumentType, images: List[ExtractedImage]) -> Dict[str, int]:
         """Map relationship IDs to image indices in the images list."""
@@ -425,10 +408,10 @@ class DocxExtractor:
 
     def _extract_paragraph(self, para: Paragraph, image_positions: Dict) -> Optional[TextBlock]:
         """Extract a paragraph with its formatting."""
-        
+
         # Get paragraph style
         style_name = para.style.name if para.style else "Normal"
-        
+
         # Determine heading level
         level = 0
         if style_name.startswith("Heading"):
@@ -445,25 +428,25 @@ class DocxExtractor:
             level = 1
         elif style_name == "Subtitle":
             level = 2
-        
+
         # Check for list
         list_type = None
         list_level = 0
-        
-        numPr = para._element.find('.//w:numPr', 
+
+        numPr = para._element.find('.//w:numPr',
             namespaces={'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'})
-        
+
         if numPr is not None:
             # This is a list item
-            ilvl = numPr.find('w:ilvl', 
+            ilvl = numPr.find('w:ilvl',
                 namespaces={'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'})
             if ilvl is not None:
                 list_level = int(ilvl.get(qn('w:val'), '0'))
-            
+
             # Try to determine if bullet or numbered
             # Default to bullet, but check the numId for numbered lists
             list_type = "bullet"
-            
+
             numId = numPr.find('w:numId',
                 namespaces={'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'})
             if numId is not None:
@@ -474,49 +457,60 @@ class DocxExtractor:
                         list_type = "number"
                 except ValueError:
                     pass
-        
+
         # Check style for list hints
         if "List Bullet" in style_name or "Bullet" in style_name:
             list_type = "bullet"
         elif "List Number" in style_name or "Numbered" in style_name:
             list_type = "number"
-        
-        # Extract text with inline formatting
-        text_parts = []
+
+        # Extract text - use paragraph.text as primary source (more reliable)
+        text = para.text or ""
+
+        # Also try to get formatting from runs
         is_bold = False
         is_italic = False
         is_underline = False
-        
-        for run in para.runs:
-            run_text = run.text
-            if not run_text:
-                continue
-            
-            # Track formatting
-            if run.bold:
-                is_bold = True
-                if self.preserve_formatting:
+
+        # If we want to preserve formatting, extract from runs
+        if self.preserve_formatting and para.runs:
+            text_parts = []
+            for run in para.runs:
+                run_text = run.text
+                if not run_text:
+                    continue
+
+                # Track formatting
+                if run.bold:
+                    is_bold = True
                     run_text = f"**{run_text}**"
-            
-            if run.italic:
-                is_italic = True
-                if self.preserve_formatting:
+
+                if run.italic:
+                    is_italic = True
                     run_text = f"*{run_text}*"
-            
-            if run.underline:
-                is_underline = True
-            
-            text_parts.append(run_text)
-        
-        # Join text
-        text = "".join(text_parts)
-        
-        # Clean up markdown artifacts
-        if self.preserve_formatting:
-            # Merge adjacent markers
-            text = re.sub(r'\*\*\*\*+', '', text)
-            text = re.sub(r'\*\*\s*\*\*', '', text)
-            text = re.sub(r'\*\s*\*', '', text)
+
+                if run.underline:
+                    is_underline = True
+
+                text_parts.append(run_text)
+
+            # Use runs text if available, otherwise fallback to para.text
+            if text_parts:
+                text = "".join(text_parts)
+
+                # Clean up markdown artifacts
+                text = re.sub(r'\*\*\*\*+', '', text)
+                text = re.sub(r'\*\*\s*\*\*', '', text)
+                text = re.sub(r'\*\s*\*', '', text)
+        else:
+            # Check if runs have any formatting
+            for run in para.runs:
+                if run.bold:
+                    is_bold = True
+                if run.italic:
+                    is_italic = True
+                if run.underline:
+                    is_underline = True
         
         # Get alignment
         alignment = "left"
