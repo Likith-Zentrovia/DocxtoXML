@@ -262,39 +262,62 @@ class DocxExtractor:
 
     def _process_document_body(self, doc: DocumentType, content: DocxContent):
         """Process the document body extracting text blocks and tables."""
-        
+
         # Get the document body
         body = doc.element.body
-        
+
         # Track current position for image placement
         image_positions = self._map_image_positions(doc)
-        
+
+        # Build lookup dictionaries for O(1) access (fixes O(n²) performance issue)
+        para_lookup = {para._element: para for para in doc.paragraphs}
+        table_lookup = {table._element: table for table in doc.tables}
+
         # Process each element in order
+        element_count = 0
         for element in body:
+            element_count += 1
+            if element_count % 500 == 0:
+                print(f"  - Processing element {element_count}...")
+
             tag = element.tag.split('}')[-1] if '}' in element.tag else element.tag
-            
+
             if tag == 'p':
-                # Paragraph
-                para = self._get_paragraph_from_element(doc, element)
+                # Paragraph - use O(1) lookup instead of O(n) search
+                para = para_lookup.get(element)
+                if para is None:
+                    # Fallback: create a new Paragraph wrapper
+                    try:
+                        para = Paragraph(element, doc)
+                    except Exception:
+                        para = None
+
                 if para is not None:
                     block = self._extract_paragraph(para, image_positions)
                     if block and (block.text.strip() or block.list_type):
                         content.text_blocks.append(block)
-                        
+
                         # Check for chapter/section boundaries
                         if block.level >= 1:
                             self._track_chapter(content, block)
-            
+
             elif tag == 'tbl':
-                # Table
+                # Table - use O(1) lookup instead of O(n) search
                 if self.extract_tables:
-                    table = self._get_table_from_element(doc, element)
+                    table = table_lookup.get(element)
+                    if table is None:
+                        # Fallback: create a new Table wrapper
+                        try:
+                            table = Table(element, doc)
+                        except Exception:
+                            table = None
+
                     if table is not None:
                         extracted_table = self._extract_table(table)
                         if extracted_table and extracted_table.rows:
                             content.tables.append(extracted_table)
                             self._table_counter += 1
-                            
+
                             # Add a marker in text blocks
                             content.text_blocks.append(TextBlock(
                                 text=f"[[TABLE_{self._table_counter}]]",
