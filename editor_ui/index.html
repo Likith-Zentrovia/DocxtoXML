@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RittDoc Editor - DOCX to XML</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header class="toolbar">
+        <div class="toolbar-left">
+            <h1 class="logo">RittDoc Editor</h1>
+            <span class="document-title" id="documentTitle">Loading...</span>
+        </div>
+        <div class="toolbar-center">
+            <div class="view-toggle">
+                <button class="view-btn active" data-view="preview" title="Preview View">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                        <circle cx="12" cy="12" r="3"></circle>
+                    </svg>
+                    Preview
+                </button>
+                <button class="view-btn" data-view="xml" title="XML Source">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="16 18 22 12 16 6"></polyline>
+                        <polyline points="8 6 2 12 8 18"></polyline>
+                    </svg>
+                    XML
+                </button>
+                <button class="view-btn" data-view="split" title="Split View">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                        <line x1="12" y1="3" x2="12" y2="21"></line>
+                    </svg>
+                    Split
+                </button>
+            </div>
+        </div>
+        <div class="toolbar-right">
+            <button class="btn btn-secondary" id="btnRefresh" title="Refresh Preview">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="23 4 23 10 17 10"></polyline>
+                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                </svg>
+                Refresh
+            </button>
+            <button class="btn btn-primary" id="btnSave" title="Save Changes">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                    <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                    <polyline points="7 3 7 8 15 8"></polyline>
+                </svg>
+                Save
+            </button>
+            <div class="dropdown">
+                <button class="btn btn-secondary dropdown-toggle" id="btnDownload">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="7 10 12 15 17 10"></polyline>
+                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                    </svg>
+                    Download
+                </button>
+                <div class="dropdown-menu" id="downloadMenu">
+                    <a href="/api/download-xml" class="dropdown-item">Download XML</a>
+                    <a href="/api/download-package" class="dropdown-item">Download Package (ZIP)</a>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="editor-container">
+        <!-- Preview Panel -->
+        <div class="panel preview-panel" id="previewPanel">
+            <div class="panel-header">
+                <span>Document Preview</span>
+            </div>
+            <div class="panel-content" id="previewContent">
+                <div class="loading">Loading document...</div>
+            </div>
+        </div>
+
+        <!-- Resizer -->
+        <div class="resizer" id="resizer"></div>
+
+        <!-- XML Editor Panel -->
+        <div class="panel xml-panel hidden" id="xmlPanel">
+            <div class="panel-header">
+                <span>XML Source</span>
+                <div class="panel-actions">
+                    <button class="panel-btn" id="btnFormat" title="Format XML">Format</button>
+                    <button class="panel-btn" id="btnValidate" title="Validate XML">Validate</button>
+                </div>
+            </div>
+            <div class="panel-content">
+                <textarea id="xmlEditor" spellcheck="false" placeholder="XML content will appear here..."></textarea>
+            </div>
+        </div>
+    </main>
+
+    <footer class="statusbar">
+        <div class="status-left">
+            <span id="statusMessage">Ready</span>
+        </div>
+        <div class="status-right">
+            <span id="statusInfo"></span>
+        </div>
+    </footer>
+
+    <!-- Toast notifications -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>
