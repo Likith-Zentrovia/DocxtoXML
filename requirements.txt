@@ -1,0 +1,42 @@
+# =============================================================================
+# DOCX to XML Pipeline (RittDoc) - Dependencies
+# =============================================================================
+# Install with: pip install -r requirements.txt
+# For production: pip install -r requirements.txt --no-cache-dir
+
+# -----------------------------------------------------------------------------
+# Core Document Processing
+# -----------------------------------------------------------------------------
+python-docx>=0.8.11        # DOCX parsing and extraction
+lxml>=4.9.0                # XML/DTD processing and validation
+Pillow>=9.0.0              # Image processing
+
+# -----------------------------------------------------------------------------
+# Optional AI Enhancement
+# -----------------------------------------------------------------------------
+anthropic>=0.40.0          # Claude API for complex content enhancement (optional)
+
+# -----------------------------------------------------------------------------
+# Data Processing
+# -----------------------------------------------------------------------------
+pandas>=1.5.0              # Data manipulation (tables, dataframes)
+openpyxl>=3.0.0            # Excel (.xlsx) support for reports
+
+# -----------------------------------------------------------------------------
+# Web API (FastAPI)
+# -----------------------------------------------------------------------------
+fastapi>=0.124.0           # REST API framework
+uvicorn>=0.38.0            # ASGI server
+pydantic>=2.0.0            # Data validation for API
+python-multipart>=0.0.9    # File upload support
+requests>=2.31.0           # HTTP client for webhooks
+
+# -----------------------------------------------------------------------------
+# Database (MongoDB) - Optional
+# -----------------------------------------------------------------------------
+pymongo>=4.6.0             # MongoDB driver for persistent dashboard
+
+# -----------------------------------------------------------------------------
+# System Dependencies (install separately)
+# -----------------------------------------------------------------------------
+# - pandoc: For alternative DOCX processing (apt-get install pandoc)

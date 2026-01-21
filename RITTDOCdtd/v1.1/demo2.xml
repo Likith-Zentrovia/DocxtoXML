@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE book SYSTEM "RittDocBook.dtd">
+<?xmlspysps http://www.altova.com/sps/Template/Publishing/docbook.sps?>
+<book>
+	<bookinfo>
+		<title>Book Title</title>
+		<author>
+			<firstname>Author First Name</firstname>
+			<surname>Author Last Name</surname>
+		</author>
+		<publisher>
+			<publishername>Publisher Name</publishername>
+		</publisher>
+		<isbn>ISBN#</isbn>
+		<copyright>
+			<year>Copyright Year</year>
+		</copyright>
+	</bookinfo>
+	<part>
+		<title>Part Title</title>
+		<chapter>
+			<title>Chapter Title</title>
+			<sect1>
+				<title>Section1 Title</title>
+				<para>Text</para>
+				<sect2>
+					<title>2</title>
+					<sect3>
+						<title>3</title>
+							<sect4>
+								<title>4</title>									
+								<sect5>
+								<title>5</title>									
+									<para>test</para>
+										
+								</sect5>
+							</sect4>
+					</sect3>
+				</sect2>
+			</sect1>
+		</chapter>
+	</part>
+</book>

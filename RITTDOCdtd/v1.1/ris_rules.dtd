@@ -1,0 +1,9 @@
+<?xml encoding="UTF-8"?>
+
+<!ELEMENT rules (rule)+>
+<!ATTLIST rules>
+
+<!ELEMENT rule EMPTY>
+<!ATTLIST rule
+  id (1|2|3|linkDrug|linkDisease) #REQUIRED
+  action (apply|remove|disable)  #REQUIRED>
