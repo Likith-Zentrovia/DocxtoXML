@@ -48,7 +48,7 @@ class DocBookGenerator:
         self,
         use_rittdoc_dtd: bool = True,
         include_bookinfo: bool = True,
-        multimedia_prefix: str = "MultiMedia/"
+        multimedia_prefix: str = "multimedia/"
     ):
         """
         Initialize the DocBook generator.
@@ -171,21 +171,55 @@ class DocBookGenerator:
 
     def _process_content(self, root: etree._Element, content: DocxContent):
         """Process text blocks into DocBook structure."""
-        
+
         # Track current containers
         current_chapter = None
         current_sect1 = None
         current_sect2 = None
         current_sect3 = None
-        
+
         # Track list state
         current_list = None
         current_list_type = None
-        
+
         # Table map for placeholder replacement
         table_map = {i+1: table for i, table in enumerate(content.tables)}
-        
+
+        # Image map for placeholder replacement
+        image_map = {i+1: img for i, img in enumerate(content.images)}
+
+        # Track which images have been placed inline
+        placed_images = set()
+
         for block in content.text_blocks:
+            # Check for image placeholder
+            if block.style == "ImageMarker" and block.text.startswith("[[IMAGE_"):
+                # Extract image number and insert figure
+                match = re.match(r'\[\[IMAGE_(\d+)\]\]', block.text)
+                if match:
+                    img_num = int(match.group(1))
+                    if img_num in image_map:
+                        # Close any open list
+                        current_list = None
+                        current_list_type = None
+
+                        # Determine parent element
+                        parent = current_sect3 or current_sect2 or current_sect1 or current_chapter or root
+
+                        # Create a default chapter if none exists
+                        if parent is None or parent is root:
+                            self._chapter_counter += 1
+                            current_chapter = etree.SubElement(root, "chapter")
+                            current_chapter.set("id", f"ch{self._chapter_counter:04d}")
+                            title = etree.SubElement(current_chapter, "title")
+                            title.text = content.title or "Content"
+                            parent = current_chapter
+
+                        figure_elem = self._create_figure_element(image_map[img_num], img_num)
+                        parent.append(figure_elem)
+                        placed_images.add(img_num)
+                continue
+
             # Check for table placeholder
             if block.style == "TableMarker" and block.text.startswith("[[TABLE_"):
                 # Extract table number and insert table
@@ -196,7 +230,7 @@ class DocBookGenerator:
                         # Close any open list
                         current_list = None
                         current_list_type = None
-                        
+
                         # Determine parent element
                         parent = current_sect3 or current_sect2 or current_sect1 or current_chapter or root
                         table_elem = self._create_table_element(table_map[table_num])
@@ -350,9 +384,9 @@ class DocBookGenerator:
                     para = etree.SubElement(parent, "para")
                     self._set_para_content(para, block.text)
         
-        # Add images section if there are images
+        # Add remaining images that weren't placed inline
         if content.images:
-            self._add_images_section(root, content.images, current_chapter)
+            self._add_images_section(root, content.images, current_chapter, placed_images)
 
     def _create_table_element(self, table: ExtractedTable) -> etree._Element:
         """Create a DocBook table element."""
@@ -395,13 +429,54 @@ class DocBookGenerator:
         
         return informal_table
 
+    def _create_figure_element(self, img: ExtractedImage, img_num: int) -> etree._Element:
+        """Create a DocBook figure element for an image."""
+        self._figure_counter += 1
+
+        # Create figure wrapper
+        figure = etree.Element("figure")
+        figure.set("id", f"fig_{self._figure_counter:04d}")
+
+        # Figure title (required by DTD)
+        fig_title = etree.SubElement(figure, "title")
+        fig_title.text = img.caption or f"Figure {self._figure_counter}"
+
+        # Mediaobject containing the image
+        mediaobject = etree.SubElement(figure, "mediaobject")
+        imageobject = etree.SubElement(mediaobject, "imageobject")
+        imagedata = etree.SubElement(imageobject, "imagedata")
+        imagedata.set("fileref", f"{self.multimedia_prefix}{img.filename}")
+
+        if img.width:
+            imagedata.set("width", f"{img.width}px")
+        if img.height:
+            imagedata.set("depth", f"{img.height}px")
+
+        # Text object for accessibility
+        if img.alt_text:
+            textobject = etree.SubElement(mediaobject, "textobject")
+            phrase = etree.SubElement(textobject, "phrase")
+            phrase.text = img.alt_text
+
+        return figure
+
     def _add_images_section(
         self,
         root: etree._Element,
         images: List[ExtractedImage],
-        current_chapter: Optional[etree._Element]
+        current_chapter: Optional[etree._Element],
+        placed_images: Optional[set] = None
     ):
-        """Add a section with all extracted images."""
+        """Add a section with remaining images that weren't placed inline."""
+        # Filter out already placed images
+        remaining_images = []
+        for i, img in enumerate(images):
+            if placed_images is None or (i + 1) not in placed_images:
+                remaining_images.append(img)
+
+        if not remaining_images:
+            return
+
         # Use current chapter or create new one
         parent = current_chapter
         if parent is None:
@@ -410,14 +485,14 @@ class DocBookGenerator:
             parent.set("id", f"ch{self._chapter_counter:04d}")
             title = etree.SubElement(parent, "title")
             title.text = "Figures"
-        
+
         # Create section for figures
         sect1 = etree.SubElement(parent, "sect1")
         sect1.set("id", "figures")
         title = etree.SubElement(sect1, "title")
         title.text = "Figures"
-        
-        for img in images:
+
+        for img in remaining_images:
             self._figure_counter += 1
             
             # Create figure
