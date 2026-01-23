@@ -55,13 +55,21 @@ class DocBookGenerator:
         """
         self.multimedia_prefix = multimedia_prefix
 
-        # Counters
+        # Counters (per-chapter, reset on new chapter)
         self._chapter_counter = 0
         self._figure_counter = 0
         self._table_counter = 0
         self._sect1_counter = 0
         self._sect2_counter = 0
         self._sect3_counter = 0
+
+        # Global sequential counters (document-wide, for cross-references)
+        self._global_figure_counter = 0
+        self._global_table_counter = 0
+
+        # Maps: sequential number -> element ID (for cross-reference linking)
+        self._figure_id_map: Dict[int, str] = {}
+        self._table_id_map: Dict[int, str] = {}
 
         # Current chapter code for image naming
         self._current_chapter_code = "Ch0001"
@@ -101,6 +109,10 @@ class DocBookGenerator:
         self._sect1_counter = 0
         self._sect2_counter = 0
         self._sect3_counter = 0
+        self._global_figure_counter = 0
+        self._global_table_counter = 0
+        self._figure_id_map = {}
+        self._table_id_map = {}
 
         # Create root element
         root = etree.Element("book")
@@ -111,6 +123,9 @@ class DocBookGenerator:
 
         # Process all elements in document order
         self._process_elements(root, content)
+
+        # Post-process: convert "Figure N" / "Table N" references to <link> elements
+        self._post_process_references(root)
 
         # Rename images to follow convention
         self._rename_images(content)
@@ -295,7 +310,10 @@ class DocBookGenerator:
                     continue
 
                 # Regular content - determine parent
-                parent = current_sect3 or current_sect2 or current_sect1 or current_chapter
+                parent = (current_sect3 if current_sect3 is not None
+                          else current_sect2 if current_sect2 is not None
+                          else current_sect1 if current_sect1 is not None
+                          else current_chapter)
                 if parent is None:
                     current_chapter = self._ensure_chapter(root, content.title)
                     parent = current_chapter
@@ -326,7 +344,10 @@ class DocBookGenerator:
                 current_list = None
                 current_list_type = None
 
-                parent = current_sect3 or current_sect2 or current_sect1 or current_chapter
+                parent = (current_sect3 if current_sect3 is not None
+                          else current_sect2 if current_sect2 is not None
+                          else current_sect1 if current_sect1 is not None
+                          else current_chapter)
                 if parent is None:
                     current_chapter = self._ensure_chapter(root, content.title)
                     parent = current_chapter
@@ -340,7 +361,10 @@ class DocBookGenerator:
                 current_list = None
                 current_list_type = None
 
-                parent = current_sect3 or current_sect2 or current_sect1 or current_chapter
+                parent = (current_sect3 if current_sect3 is not None
+                          else current_sect2 if current_sect2 is not None
+                          else current_sect1 if current_sect1 is not None
+                          else current_chapter)
                 if parent is None:
                     current_chapter = self._ensure_chapter(root, content.title)
                     parent = current_chapter
@@ -380,6 +404,10 @@ class DocBookGenerator:
         # Figure ID: ch0000s0000fg00
         fig_id = f"{self._get_chapter_id()}{section_code}fg{self._figure_counter:02d}"
 
+        # Track global figure number for cross-references
+        self._global_figure_counter += 1
+        self._figure_id_map[self._global_figure_counter] = fig_id
+
         # Filename: Ch0000s0000fg00.ext (uppercase Ch for filename)
         figure_filename = f"{self._current_chapter_code}{section_code}fg{self._figure_counter:02d}{ext}"
 
@@ -418,6 +446,10 @@ class DocBookGenerator:
         section_code = self._get_section_code()
         table_id = f"{self._get_chapter_id()}{section_code}tb{self._table_counter:02d}"
         table_elem.set("id", table_id)
+
+        # Track global table number for cross-references
+        self._global_table_counter += 1
+        self._table_id_map[self._global_table_counter] = table_id
 
         # Title (required by DTD)
         table_title = etree.SubElement(table_elem, "title")
@@ -461,6 +493,156 @@ class DocBookGenerator:
         # Images have already been renamed during figure creation
         # This method is a hook for any additional renaming logic
         pass
+
+    def _post_process_references(self, root: etree._Element):
+        """
+        Post-process the XML tree to convert figure/table references to links.
+
+        Converts patterns like:
+        - "Figure 29" / "Fig. 29" -> <link linkend="fig_id">Figure 29</link>
+        - "Table 5" / "Tab. 5" -> <link linkend="table_id">Table 5</link>
+
+        Handles references in:
+        - <emphasis role="bold">Figure N</emphasis> (replaces emphasis with link)
+        - Plain text within <para> elements
+        """
+        # Pattern to match figure/table references
+        ref_pattern = re.compile(
+            r'\b(Figures?|Figs?\.?|Tables?|Tabs?\.?)\s+(\d+(?:\s*[-–&,]\s*\d+)*)',
+            re.IGNORECASE
+        )
+
+        # Process all emphasis elements first (bold references like "Figure 29")
+        for emphasis in root.iter('emphasis'):
+            if emphasis.text:
+                match = ref_pattern.match(emphasis.text.strip())
+                if match:
+                    ref_type = match.group(1).lower()
+                    ref_nums = match.group(2)
+                    linkend = self._resolve_reference(ref_type, ref_nums)
+                    if linkend:
+                        self._replace_with_link(emphasis, linkend)
+
+        # Process plain text in paragraphs
+        for para in root.iter('para'):
+            self._linkify_text_references(para, ref_pattern)
+
+    def _resolve_reference(self, ref_type: str, ref_nums: str) -> Optional[str]:
+        """
+        Resolve a reference type and number to a linkend ID.
+
+        Args:
+            ref_type: "figure", "fig.", "table", etc.
+            ref_nums: "29" or "29-30" or "29, 30"
+
+        Returns:
+            linkend ID string or None if not found
+        """
+        # Extract first number from the reference
+        num_match = re.search(r'(\d+)', ref_nums)
+        if not num_match:
+            return None
+        num = int(num_match.group(1))
+
+        is_figure = ref_type.startswith('fig') or ref_type.startswith('Fig')
+        is_table = ref_type.startswith('tab') or ref_type.startswith('Tab')
+
+        if is_figure and num in self._figure_id_map:
+            return self._figure_id_map[num]
+        elif is_table and num in self._table_id_map:
+            return self._table_id_map[num]
+
+        return None
+
+    def _replace_with_link(self, elem: etree._Element, linkend: str):
+        """
+        Replace an element (like <emphasis>) with a <link> element in-place.
+        Preserves text content and tail.
+        """
+        parent = elem.getparent()
+        if parent is None:
+            return
+
+        # Create link element
+        link = etree.Element("link")
+        link.set("linkend", linkend)
+        link.text = elem.text
+        link.tail = elem.tail
+
+        # Replace in parent
+        idx = list(parent).index(elem)
+        parent.remove(elem)
+        parent.insert(idx, link)
+
+    def _linkify_text_references(self, para: etree._Element, pattern: re.Pattern):
+        """
+        Find and convert figure/table references in plain text within a paragraph.
+        Handles text in para.text and in tail text of child elements.
+        """
+        # Process para.text
+        if para.text:
+            new_text, links = self._extract_links_from_text(para.text, pattern)
+            if links:
+                para.text = new_text
+                # Insert link elements at the beginning (after text)
+                for i, (link_text, linkend, tail) in enumerate(links):
+                    link = etree.Element("link")
+                    link.set("linkend", linkend)
+                    link.text = link_text
+                    link.tail = tail
+                    para.insert(i, link)
+
+        # Process tail text of child elements
+        for child in list(para):
+            if child.tag == 'link':
+                continue  # Don't process already-linked text
+            if child.tail:
+                new_tail, links = self._extract_links_from_text(child.tail, pattern)
+                if links:
+                    child.tail = new_tail
+                    parent = child.getparent()
+                    idx = list(parent).index(child)
+                    for i, (link_text, linkend, tail) in enumerate(links):
+                        link = etree.Element("link")
+                        link.set("linkend", linkend)
+                        link.text = link_text
+                        link.tail = tail
+                        parent.insert(idx + 1 + i, link)
+
+    def _extract_links_from_text(self, text: str, pattern: re.Pattern) -> tuple:
+        """
+        Extract link references from text.
+
+        Returns:
+            (remaining_text, [(link_text, linkend, tail_text), ...])
+        """
+        links = []
+        last_end = 0
+        remaining = ""
+
+        for match in pattern.finditer(text):
+            ref_type = match.group(1).lower()
+            ref_nums = match.group(2)
+            linkend = self._resolve_reference(ref_type, ref_nums)
+
+            if linkend:
+                # Text before this match goes as prefix
+                remaining += text[last_end:match.start()]
+                # The match itself becomes a link; tail is text after until next match
+                links.append((match.group(0), linkend, ""))
+                last_end = match.end()
+
+        if not links:
+            return text, []
+
+        # Set the tail of the last link to remaining text
+        if last_end < len(text):
+            if links:
+                links[-1] = (links[-1][0], links[-1][1], text[last_end:])
+        # For intermediate links, set tails between matches
+        # (already handled by the loop - remaining text after each match)
+
+        return remaining, links
 
     def _set_para_content(self, para: etree._Element, text: str):
         """Set paragraph content with inline formatting (bold, italic, subscript, superscript)."""
