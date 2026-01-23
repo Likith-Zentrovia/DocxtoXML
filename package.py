@@ -147,13 +147,16 @@ class PackageGenerator:
                     zf.writestr(img_path, img.data)
                     result.files_included.append(img_path)
                     result.media_count += 1
-                    
+
+                    # Parse chapter and figure info from filename (e.g., Ch0001f01.jpg)
+                    chapter_code, figure_num = self._parse_figure_filename(img.filename)
+
                     # Collect metadata
                     image_metadata.append(ImageMetadata(
                         filename=img.filename,
                         original_filename=img.filename,
-                        chapter="",
-                        figure_number=str(i),
+                        chapter=chapter_code,
+                        figure_number=figure_num,
                         caption=img.caption,
                         alt_text=img.alt_text,
                         width=img.width or 0,
@@ -242,6 +245,17 @@ class PackageGenerator:
         writer.writerow(["Images", str(len(content.images))])
         
         return output.getvalue().decode('utf-8')
+
+    def _parse_figure_filename(self, filename: str) -> Tuple[str, str]:
+        """Parse chapter code and figure number from a convention filename.
+
+        e.g., Ch0001f01.jpg -> ("Ch0001", "01")
+              Ch0001s01f02.png -> ("Ch0001", "02")
+        """
+        match = re.match(r'(Ch\d{4})(?:s\d+)?f(\d+)', filename)
+        if match:
+            return match.group(1), match.group(2)
+        return "", str(0)
 
     def _format_size(self, size_bytes: int) -> str:
         """Format file size in human-readable form."""
