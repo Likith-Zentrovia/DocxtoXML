@@ -252,34 +252,75 @@ class DocxExtractor:
         except Exception as e:
             print(f"Warning: Error reading DOCX package: {e}")
 
+        # Build a quick lookup by filename from media_files
+        media_by_name = {}
+        for media_path, file_data in media_files.items():
+            basename = Path(media_path).name
+            media_by_name[basename] = (media_path, file_data)
+
         # Map relationship IDs to media files
         rel_to_image = {}
         try:
             rels = doc.part.rels
             for rel_id, rel in rels.items():
+                # Check relationship type - only process image relationships
+                rel_type = getattr(rel, 'reltype', '') or ''
+                is_image_rel = 'image' in rel_type.lower()
+
                 if hasattr(rel, 'target_part') and rel.target_part:
                     target = rel.target_part
                     if hasattr(target, 'partname'):
                         partname = str(target.partname)
-                        # Match against media files (partname is like /word/media/image1.png)
-                        full_path = 'word' + partname.split('word')[-1] if 'word' in partname else partname
-                        # Try to match
-                        for media_path, (data, ct, ext, w, h) in media_files.items():
-                            if media_path.endswith(partname.split('/')[-1]):
-                                self._image_counter += 1
-                                img = ExtractedImage(
-                                    filename=f"img_{self._image_counter:04d}{ext}",
-                                    data=data,
-                                    content_type=ct,
-                                    width=w,
-                                    height=h,
-                                    rel_id=rel_id
-                                )
-                                rel_to_image[rel_id] = img
-                                break
+                        target_name = Path(partname).name
+
+                        # Match against media files by filename
+                        if target_name in media_by_name:
+                            media_path, (data, ct, ext, w, h) = media_by_name[target_name]
+                            self._image_counter += 1
+                            img = ExtractedImage(
+                                filename=f"img_{self._image_counter:04d}{ext}",
+                                data=data,
+                                content_type=ct,
+                                width=w,
+                                height=h,
+                                rel_id=rel_id
+                            )
+                            rel_to_image[rel_id] = img
+                        elif is_image_rel:
+                            # Try partial match for renamed/relocated images
+                            for media_path, (data, ct, ext, w, h) in media_files.items():
+                                if media_path.endswith(target_name):
+                                    self._image_counter += 1
+                                    img = ExtractedImage(
+                                        filename=f"img_{self._image_counter:04d}{ext}",
+                                        data=data,
+                                        content_type=ct,
+                                        width=w,
+                                        height=h,
+                                        rel_id=rel_id
+                                    )
+                                    rel_to_image[rel_id] = img
+                                    break
+                elif is_image_rel and hasattr(rel, 'target_ref'):
+                    # External image link - try to match by name
+                    target_ref = str(rel.target_ref)
+                    target_name = Path(target_ref).name
+                    if target_name in media_by_name:
+                        media_path, (data, ct, ext, w, h) = media_by_name[target_name]
+                        self._image_counter += 1
+                        img = ExtractedImage(
+                            filename=f"img_{self._image_counter:04d}{ext}",
+                            data=data,
+                            content_type=ct,
+                            width=w,
+                            height=h,
+                            rel_id=rel_id
+                        )
+                        rel_to_image[rel_id] = img
         except Exception as e:
             print(f"Warning: Could not map relationship IDs: {e}")
 
+        print(f"  - Mapped {len(rel_to_image)} image relationships from {len(media_files)} media files")
         return rel_to_image
 
     def _process_body_in_order(self, doc: DocumentType, content: DocxContent, image_data_map: Dict[str, ExtractedImage]):
@@ -307,17 +348,14 @@ class DocxExtractor:
 
             if tag == 'p':
                 # Check for images in this paragraph FIRST
-                blips = element.findall('.//' + qn('a:blip'))
-                if blips and self.extract_images:
-                    for blip in blips:
-                        rel_id = blip.get(qn('r:embed'))
-                        if rel_id and rel_id in image_data_map:
-                            img = image_data_map[rel_id]
-                            content.images.append(img)
-                            content.elements.append(DocumentElement(
-                                element_type="image",
-                                image=img
-                            ))
+                if self.extract_images:
+                    found_images = self._find_images_in_element(element, image_data_map)
+                    for img in found_images:
+                        content.images.append(img)
+                        content.elements.append(DocumentElement(
+                            element_type="image",
+                            image=img
+                        ))
 
                 # Extract paragraph text
                 para = para_lookup.get(element)
@@ -357,6 +395,64 @@ class DocxExtractor:
                     ))
 
         print(f"  - Extracted: {len(content.text_blocks)} paragraphs, {len(content.images)} images, {len(content.tables)} tables")
+
+    def _find_images_in_element(self, element, image_data_map: Dict[str, ExtractedImage]) -> List[ExtractedImage]:
+        """
+        Find all images in a paragraph element using multiple detection methods:
+        1. DrawingML: a:blip with r:embed or r:link
+        2. VML: v:imagedata with r:id (legacy format)
+        3. w:object with embedded images
+
+        Returns list of ExtractedImage objects found.
+        """
+        found = []
+        seen_rel_ids = set()
+
+        # Method 1: DrawingML images (a:blip)
+        blips = element.findall('.//' + qn('a:blip'))
+        for blip in blips:
+            # Check r:embed first (most common)
+            rel_id = blip.get(qn('r:embed'))
+            if not rel_id:
+                # Also check r:link (linked images)
+                rel_id = blip.get(qn('r:link'))
+            if rel_id and rel_id in image_data_map and rel_id not in seen_rel_ids:
+                seen_rel_ids.add(rel_id)
+                found.append(image_data_map[rel_id])
+
+        # Method 2: VML images (v:imagedata) - legacy DOCX format
+        try:
+            # VML namespace: urn:schemas-microsoft-com:vml
+            vml_ns = 'urn:schemas-microsoft-com:vml'
+            r_ns = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
+
+            imagedata_elems = element.findall('.//{%s}imagedata' % vml_ns)
+            for imgdata in imagedata_elems:
+                rel_id = imgdata.get('{%s}id' % r_ns)
+                if not rel_id:
+                    rel_id = imgdata.get('{%s}pict' % r_ns)
+                if rel_id and rel_id in image_data_map and rel_id not in seen_rel_ids:
+                    seen_rel_ids.add(rel_id)
+                    found.append(image_data_map[rel_id])
+        except Exception:
+            pass
+
+        # Method 3: OLE objects with image representations
+        try:
+            ole_objects = element.findall('.//' + qn('w:object'))
+            for obj in ole_objects:
+                # OLE objects can contain v:shape with v:imagedata
+                vml_shapes = obj.findall('.//{%s}imagedata' % 'urn:schemas-microsoft-com:vml')
+                for imgdata in vml_shapes:
+                    r_ns = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
+                    rel_id = imgdata.get('{%s}id' % r_ns)
+                    if rel_id and rel_id in image_data_map and rel_id not in seen_rel_ids:
+                        seen_rel_ids.add(rel_id)
+                        found.append(image_data_map[rel_id])
+        except Exception:
+            pass
+
+        return found
 
     def _extract_paragraph(self, para: Paragraph) -> Optional[TextBlock]:
         """Extract a paragraph with its formatting."""

@@ -28,6 +28,7 @@ from config import PipelineConfig, get_config
 from docx_extractor import DocxExtractor, DocxContent, extract_docx
 from docbook_generator import DocBookGenerator, generate_docbook
 from package import PackageGenerator, create_rittdoc_package, save_images_to_folder
+from validation_report import validate_xml, ValidationReportGenerator
 
 
 # ============================================================================
@@ -45,6 +46,7 @@ class ConversionResult:
     xml_path: Optional[str] = None
     package_path: Optional[str] = None
     multimedia_dir: Optional[str] = None
+    validation_report_path: Optional[str] = None
     
     # Statistics
     text_blocks: int = 0
@@ -231,9 +233,33 @@ class DocxOrchestrator:
                     if self.verbose:
                         print(f"  - Package creation had issues: {package_result.errors}")
             
+            # Step 5: Generate validation report
+            if self.verbose:
+                step_num = 5 if create_package else 4
+                print(f"\nStep {step_num}: Generating validation report...")
+
+            try:
+                validation_result = validate_xml(xml_content, f"{stem}_docbook42.xml")
+                report_path = output_dir / f"{stem}_validation_report.xlsx"
+                report_gen = ValidationReportGenerator()
+                report_gen.generate_report(
+                    validation_result, report_path,
+                    f"Validation Report: {stem}"
+                )
+                result.validation_report_path = str(report_path)
+
+                if self.verbose:
+                    print(f"  - Errors: {validation_result.total_errors}")
+                    print(f"  - Warnings: {validation_result.total_warnings}")
+                    print(f"  - Report: {report_path}")
+            except Exception as val_err:
+                result.warnings.append(f"Validation report error: {val_err}")
+                if self.verbose:
+                    print(f"  - Warning: Could not generate validation report: {val_err}")
+
             # Success!
             result.success = True
-            
+
         except Exception as e:
             result.errors.append(str(e))
             if self.verbose:
