@@ -66,6 +66,23 @@ class DocBookGenerator:
         # Current chapter code for image naming
         self._current_chapter_code = "Ch0001"
 
+    def _get_section_code(self) -> str:
+        """
+        Build the 4-digit section code: s{sect1:02d}{sect2:02d}
+        e.g., s0100 (sect1=01), s0101 (sect1=01, sect2=01)
+        """
+        if self._sect1_counter > 0:
+            return f"s{self._sect1_counter:02d}{self._sect2_counter:02d}"
+        return "s0000"
+
+    def _get_chapter_id(self) -> str:
+        """Get current chapter ID: ch0000 format."""
+        return f"ch{self._chapter_counter:04d}"
+
+    def _get_section_id(self) -> str:
+        """Get full section ID: ch0000s0000 format."""
+        return f"{self._get_chapter_id()}{self._get_section_code()}"
+
     def generate(self, content: DocxContent, output_path: Optional[Union[str, Path]] = None) -> str:
         """
         Generate DocBook XML from extracted content.
@@ -218,9 +235,8 @@ class DocBookGenerator:
                         current_chapter = self._ensure_chapter(root, content.title)
 
                     self._sect1_counter += 1
-                    sect_id = f"ch{self._chapter_counter:04d}s{self._sect1_counter:02d}"
                     current_sect1 = etree.SubElement(current_chapter, "sect1")
-                    current_sect1.set("id", sect_id)
+                    current_sect1.set("id", self._get_section_id())
 
                     title = etree.SubElement(current_sect1, "title")
                     title.text = self._clean_text(block.text)
@@ -238,14 +254,13 @@ class DocBookGenerator:
                     if current_sect1 is None:
                         self._sect1_counter += 1
                         current_sect1 = etree.SubElement(current_chapter, "sect1")
-                        current_sect1.set("id", f"ch{self._chapter_counter:04d}s{self._sect1_counter:02d}")
+                        current_sect1.set("id", self._get_section_id())
                         t = etree.SubElement(current_sect1, "title")
                         t.text = "Section"
 
                     self._sect2_counter += 1
-                    sect_id = f"ch{self._chapter_counter:04d}s{self._sect1_counter:02d}{self._sect2_counter:02d}"
                     current_sect2 = etree.SubElement(current_sect1, "sect2")
-                    current_sect2.set("id", sect_id)
+                    current_sect2.set("id", self._get_section_id())
 
                     title = etree.SubElement(current_sect2, "title")
                     title.text = self._clean_text(block.text)
@@ -261,20 +276,19 @@ class DocBookGenerator:
                     if current_sect1 is None:
                         self._sect1_counter += 1
                         current_sect1 = etree.SubElement(current_chapter, "sect1")
-                        current_sect1.set("id", f"ch{self._chapter_counter:04d}s{self._sect1_counter:02d}")
+                        current_sect1.set("id", self._get_section_id())
                         t = etree.SubElement(current_sect1, "title")
                         t.text = "Section"
                     if current_sect2 is None:
                         self._sect2_counter += 1
                         current_sect2 = etree.SubElement(current_sect1, "sect2")
-                        current_sect2.set("id", f"ch{self._chapter_counter:04d}s{self._sect1_counter:02d}{self._sect2_counter:02d}")
+                        current_sect2.set("id", self._get_section_id())
                         t = etree.SubElement(current_sect2, "title")
                         t.text = "Subsection"
 
                     self._sect3_counter += 1
-                    sect_id = f"ch{self._chapter_counter:04d}s{self._sect1_counter:02d}{self._sect2_counter:02d}{self._sect3_counter:02d}"
                     current_sect3 = etree.SubElement(current_sect2, "sect3")
-                    current_sect3.set("id", sect_id)
+                    current_sect3.set("id", self._get_section_id())
 
                     title = etree.SubElement(current_sect3, "title")
                     title.text = self._clean_text(block.text)
@@ -341,10 +355,12 @@ class DocBookGenerator:
         self._figure_counter = 0
         self._table_counter = 0
         self._sect1_counter = 0
+        self._sect2_counter = 0
+        self._sect3_counter = 0
         self._current_chapter_code = f"Ch{self._chapter_counter:04d}"
 
         chapter = etree.SubElement(root, "chapter")
-        chapter.set("id", f"ch{self._chapter_counter:04d}")
+        chapter.set("id", self._get_chapter_id())
         t = etree.SubElement(chapter, "title")
         t.text = title or "Content"
         return chapter
@@ -354,23 +370,25 @@ class DocBookGenerator:
         Create a DTD-compliant figure element.
 
         Structure: <figure><title/><mediaobject><imageobject><imagedata/></imageobject></mediaobject></figure>
-        """
-        # Generate figure filename following convention: Ch{chapter}f{fig_num}.{ext}
-        ext = Path(img.filename).suffix
-        section_suffix = ""
-        if self._sect1_counter > 0:
-            section_suffix = f"s{self._sect1_counter:02d}"
-            if self._sect2_counter > 0:
-                section_suffix += f"{self._sect2_counter:02d}"
 
-        figure_filename = f"{self._current_chapter_code}{section_suffix}f{self._figure_counter:02d}{ext}"
+        ID format: ch0000s0000fg00
+        Filename format: Ch0000s0000fg00.ext
+        """
+        ext = Path(img.filename).suffix
+        section_code = self._get_section_code()
+
+        # Figure ID: ch0000s0000fg00
+        fig_id = f"{self._get_chapter_id()}{section_code}fg{self._figure_counter:02d}"
+
+        # Filename: Ch0000s0000fg00.ext (uppercase Ch for filename)
+        figure_filename = f"{self._current_chapter_code}{section_code}fg{self._figure_counter:02d}{ext}"
 
         # Update image filename for package
         img.filename = figure_filename
 
         # Create figure element
         figure = etree.Element("figure")
-        figure.set("id", f"fig_{self._current_chapter_code}{section_suffix}f{self._figure_counter:02d}")
+        figure.set("id", fig_id)
 
         # Title (required by DTD)
         fig_title = etree.SubElement(figure, "title")
@@ -392,10 +410,13 @@ class DocBookGenerator:
 
         Structure: <table><title/><tgroup cols="N"><colspec/><thead/><tbody/></tgroup></table>
         Uses CALS table format (not HTML).
+
+        ID format: ch0000s0000tb00
         """
         # Create table element (not informaltable - DTD requires <table> with <title>)
         table_elem = etree.Element("table")
-        table_id = f"tbl_{self._current_chapter_code}t{self._table_counter:02d}"
+        section_code = self._get_section_code()
+        table_id = f"{self._get_chapter_id()}{section_code}tb{self._table_counter:02d}"
         table_elem.set("id", table_id)
 
         # Title (required by DTD)

@@ -249,10 +249,11 @@ class PackageGenerator:
     def _parse_figure_filename(self, filename: str) -> Tuple[str, str]:
         """Parse chapter code and figure number from a convention filename.
 
-        e.g., Ch0001f01.jpg -> ("Ch0001", "01")
-              Ch0001s01f02.png -> ("Ch0001", "02")
+        Format: Ch0000s0000fg00.ext
+        e.g., Ch0001s0100fg01.jpg -> ("Ch0001", "01")
+              Ch0001s0101fg02.png -> ("Ch0001", "02")
         """
-        match = re.match(r'(Ch\d{4})(?:s\d+)?f(\d+)', filename)
+        match = re.match(r'(Ch\d{4})(?:s\d{4})?fg(\d{2})', filename)
         if match:
             return match.group(1), match.group(2)
         return "", str(0)
