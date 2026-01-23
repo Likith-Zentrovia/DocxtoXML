@@ -260,51 +260,30 @@ class DocxExtractor:
 
         # Map relationship IDs to media files
         rel_to_image = {}
-        try:
-            rels = doc.part.rels
-            for rel_id, rel in rels.items():
+        rels = doc.part.rels
+        for rel_id, rel in rels.items():
+            try:
+                # Skip external relationships (hyperlinks, etc.)
+                if getattr(rel, 'is_external', False):
+                    continue
+
                 # Check relationship type - only process image relationships
                 rel_type = getattr(rel, 'reltype', '') or ''
                 is_image_rel = 'image' in rel_type.lower()
 
-                if hasattr(rel, 'target_part') and rel.target_part:
-                    target = rel.target_part
-                    if hasattr(target, 'partname'):
-                        partname = str(target.partname)
-                        target_name = Path(partname).name
+                # Try to get target part (will fail for external rels)
+                target_part = None
+                try:
+                    target_part = rel.target_part
+                except (ValueError, AttributeError):
+                    # External relationship - no target_part available
+                    continue
 
-                        # Match against media files by filename
-                        if target_name in media_by_name:
-                            media_path, (data, ct, ext, w, h) = media_by_name[target_name]
-                            self._image_counter += 1
-                            img = ExtractedImage(
-                                filename=f"img_{self._image_counter:04d}{ext}",
-                                data=data,
-                                content_type=ct,
-                                width=w,
-                                height=h,
-                                rel_id=rel_id
-                            )
-                            rel_to_image[rel_id] = img
-                        elif is_image_rel:
-                            # Try partial match for renamed/relocated images
-                            for media_path, (data, ct, ext, w, h) in media_files.items():
-                                if media_path.endswith(target_name):
-                                    self._image_counter += 1
-                                    img = ExtractedImage(
-                                        filename=f"img_{self._image_counter:04d}{ext}",
-                                        data=data,
-                                        content_type=ct,
-                                        width=w,
-                                        height=h,
-                                        rel_id=rel_id
-                                    )
-                                    rel_to_image[rel_id] = img
-                                    break
-                elif is_image_rel and hasattr(rel, 'target_ref'):
-                    # External image link - try to match by name
-                    target_ref = str(rel.target_ref)
-                    target_name = Path(target_ref).name
+                if target_part and hasattr(target_part, 'partname'):
+                    partname = str(target_part.partname)
+                    target_name = Path(partname).name
+
+                    # Match against media files by filename
                     if target_name in media_by_name:
                         media_path, (data, ct, ext, w, h) = media_by_name[target_name]
                         self._image_counter += 1
@@ -317,8 +296,24 @@ class DocxExtractor:
                             rel_id=rel_id
                         )
                         rel_to_image[rel_id] = img
-        except Exception as e:
-            print(f"Warning: Could not map relationship IDs: {e}")
+                    elif is_image_rel:
+                        # Try partial match for renamed/relocated images
+                        for m_path, (data, ct, ext, w, h) in media_files.items():
+                            if m_path.endswith(target_name):
+                                self._image_counter += 1
+                                img = ExtractedImage(
+                                    filename=f"img_{self._image_counter:04d}{ext}",
+                                    data=data,
+                                    content_type=ct,
+                                    width=w,
+                                    height=h,
+                                    rel_id=rel_id
+                                )
+                                rel_to_image[rel_id] = img
+                                break
+            except Exception:
+                # Skip any problematic relationship silently
+                continue
 
         print(f"  - Mapped {len(rel_to_image)} image relationships from {len(media_files)} media files")
         return rel_to_image
