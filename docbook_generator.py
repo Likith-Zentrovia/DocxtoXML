@@ -463,10 +463,13 @@ class DocBookGenerator:
         pass
 
     def _set_para_content(self, para: etree._Element, text: str):
-        """Set paragraph content with inline formatting."""
+        """Set paragraph content with inline formatting (bold, italic, subscript, superscript)."""
         text = self._clean_text(text)
 
-        if "**" in text or "*" in text:
+        has_formatting = ("**" in text or "*" in text or
+                         "{sub:" in text or "{sup:" in text)
+
+        if has_formatting:
             parts = self._parse_inline_formatting(text)
             if len(parts) == 1 and parts[0][1] is None:
                 para.text = parts[0][0]
@@ -479,30 +482,46 @@ class DocBookGenerator:
                             last_elem.tail = (last_elem.tail or "") + part_text
                         else:
                             para.text = (para.text or "") + part_text
-                    else:
-                        emphasis = etree.SubElement(para, "emphasis")
-                        if fmt == "bold":
-                            emphasis.set("role", "bold")
-                        emphasis.text = part_text
-                        last_elem = emphasis
+                    elif fmt == "bold":
+                        elem = etree.SubElement(para, "emphasis")
+                        elem.set("role", "bold")
+                        elem.text = part_text
+                        last_elem = elem
+                    elif fmt == "italic":
+                        elem = etree.SubElement(para, "emphasis")
+                        elem.text = part_text
+                        last_elem = elem
+                    elif fmt == "subscript":
+                        elem = etree.SubElement(para, "subscript")
+                        elem.text = part_text
+                        last_elem = elem
+                    elif fmt == "superscript":
+                        elem = etree.SubElement(para, "superscript")
+                        elem.text = part_text
+                        last_elem = elem
         else:
             para.text = text
 
     def _parse_inline_formatting(self, text: str) -> List[tuple]:
-        """Parse text with inline formatting markers."""
+        """Parse text with inline formatting markers: **bold**, *italic*, {sub:text}, {sup:text}."""
         parts = []
         current_pos = 0
-        pattern = r'(\*\*\*(.+?)\*\*\*|\*\*(.+?)\*\*|\*(.+?)\*)'
+        # Match: {sub:...}, {sup:...}, ***bold-italic***, **bold**, *italic*
+        pattern = r'(\{sub:(.+?)\}|\{sup:(.+?)\}|\*\*\*(.+?)\*\*\*|\*\*(.+?)\*\*|\*(.+?)\*)'
 
         for match in re.finditer(pattern, text):
             if match.start() > current_pos:
                 parts.append((text[current_pos:match.start()], None))
             if match.group(2):
-                parts.append((match.group(2), "bold"))
+                parts.append((match.group(2), "subscript"))
             elif match.group(3):
-                parts.append((match.group(3), "bold"))
+                parts.append((match.group(3), "superscript"))
             elif match.group(4):
-                parts.append((match.group(4), "italic"))
+                parts.append((match.group(4), "bold"))
+            elif match.group(5):
+                parts.append((match.group(5), "bold"))
+            elif match.group(6):
+                parts.append((match.group(6), "italic"))
             current_pos = match.end()
 
         if current_pos < len(text):
