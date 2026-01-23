@@ -510,21 +510,37 @@ class DocxExtractor:
                 run_text = run.text
                 if not run_text:
                     continue
-                if run.bold:
+
+                # Check for subscript/superscript FIRST (before bold/italic)
+                is_subscript = False
+                is_superscript = False
+                if run.font:
+                    if run.font.subscript:
+                        is_subscript = True
+                    if run.font.superscript:
+                        is_superscript = True
+
+                if is_subscript:
+                    run_text = f"{{sub:{run_text}}}"
+                elif is_superscript:
+                    run_text = f"{{sup:{run_text}}}"
+                elif run.bold:
                     is_bold = True
                     run_text = f"**{run_text}**"
-                if run.italic:
+                elif run.italic:
                     is_italic = True
                     run_text = f"*{run_text}*"
+
                 if run.underline:
                     is_underline = True
                 text_parts.append(run_text)
 
             if text_parts:
                 text = "".join(text_parts)
-                text = re.sub(r'\*\*\*\*+', '', text)
-                text = re.sub(r'\*\*\s*\*\*', '', text)
-                text = re.sub(r'\*\s*\*', '', text)
+                # Merge adjacent bold markers: **text1****text2** -> **text1 text2**
+                text = re.sub(r'\*\*\*\*', '', text)
+                # Merge adjacent italic markers
+                text = re.sub(r'\*\*(?=\*[^*])', '', text)
         else:
             for run in para.runs:
                 if run.bold:
