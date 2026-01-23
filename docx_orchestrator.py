@@ -121,8 +121,6 @@ class DocxOrchestrator:
         )
         
         self.generator = DocBookGenerator(
-            use_rittdoc_dtd=True,
-            include_bookinfo=True,
             multimedia_prefix="multimedia/"
         )
         
