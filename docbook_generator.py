@@ -7,7 +7,7 @@ specification. Matches the output format of the PDFtoXML pipeline.
 
 Key rules followed:
 - Chapter IDs: ch0001, ch0002, etc.
-- Section IDs: hierarchical (s0101, s0201, etc.)
+- Section IDs: sequential within chapter (s0001, s0002, s0003, etc.)
 - Figure naming: Ch{chapter}f{figure_num}.{ext}
 - Table format: CALS with <table><title><tgroup cols="N">
 - Image attributes: fileref, width="100%", scalefit="1"
@@ -59,9 +59,7 @@ class DocBookGenerator:
         self._chapter_counter = 0
         self._figure_counter = 0
         self._table_counter = 0
-        self._sect1_counter = 0
-        self._sect2_counter = 0
-        self._sect3_counter = 0
+        self._section_counter = 0  # Sequential section counter (s0001, s0002, ...)
 
         # Global sequential counters (document-wide, for cross-references)
         self._global_figure_counter = 0
@@ -76,11 +74,11 @@ class DocBookGenerator:
 
     def _get_section_code(self) -> str:
         """
-        Build the 4-digit section code: s{sect1:02d}{sect2:02d}
-        e.g., s0100 (sect1=01), s0101 (sect1=01, sect2=01)
+        Build the 4-digit section code: s{counter:04d}
+        Sequential numbering within each chapter: s0001, s0002, s0003, ...
         """
-        if self._sect1_counter > 0:
-            return f"s{self._sect1_counter:02d}{self._sect2_counter:02d}"
+        if self._section_counter > 0:
+            return f"s{self._section_counter:04d}"
         return "s0000"
 
     def _get_chapter_id(self) -> str:
@@ -106,9 +104,7 @@ class DocBookGenerator:
         self._chapter_counter = 0
         self._figure_counter = 0
         self._table_counter = 0
-        self._sect1_counter = 0
-        self._sect2_counter = 0
-        self._sect3_counter = 0
+        self._section_counter = 0
         self._global_figure_counter = 0
         self._global_table_counter = 0
         self._figure_id_map = {}
@@ -116,6 +112,7 @@ class DocBookGenerator:
 
         # Create root element
         root = etree.Element("book")
+        root.set("id", "b001")
 
         # Add bookinfo
         bookinfo = self._create_bookinfo(content)
@@ -224,9 +221,7 @@ class DocBookGenerator:
                     current_sect1 = None
                     current_sect2 = None
                     current_sect3 = None
-                    self._sect1_counter = 0
-                    self._sect2_counter = 0
-                    self._sect3_counter = 0
+                    self._section_counter = 0  # Reset sequential section counter per chapter
 
                     self._chapter_counter += 1
                     self._figure_counter = 0  # Reset per chapter
@@ -246,13 +241,11 @@ class DocBookGenerator:
                     current_list_type = None
                     current_sect2 = None
                     current_sect3 = None
-                    self._sect2_counter = 0
-                    self._sect3_counter = 0
 
                     if current_chapter is None:
                         current_chapter = self._ensure_chapter(root, content.title)
 
-                    self._sect1_counter += 1
+                    self._section_counter += 1
                     current_sect1 = etree.SubElement(current_chapter, "sect1")
                     current_sect1.set("id", self._get_section_id())
 
@@ -265,18 +258,17 @@ class DocBookGenerator:
                     current_list = None
                     current_list_type = None
                     current_sect3 = None
-                    self._sect3_counter = 0
 
                     if current_chapter is None:
                         current_chapter = self._ensure_chapter(root, content.title)
                     if current_sect1 is None:
-                        self._sect1_counter += 1
+                        self._section_counter += 1
                         current_sect1 = etree.SubElement(current_chapter, "sect1")
                         current_sect1.set("id", self._get_section_id())
                         t = etree.SubElement(current_sect1, "title")
                         t.text = "Section"
 
-                    self._sect2_counter += 1
+                    self._section_counter += 1
                     current_sect2 = etree.SubElement(current_sect1, "sect2")
                     current_sect2.set("id", self._get_section_id())
 
@@ -292,19 +284,19 @@ class DocBookGenerator:
                     if current_chapter is None:
                         current_chapter = self._ensure_chapter(root, content.title)
                     if current_sect1 is None:
-                        self._sect1_counter += 1
+                        self._section_counter += 1
                         current_sect1 = etree.SubElement(current_chapter, "sect1")
                         current_sect1.set("id", self._get_section_id())
                         t = etree.SubElement(current_sect1, "title")
                         t.text = "Section"
                     if current_sect2 is None:
-                        self._sect2_counter += 1
+                        self._section_counter += 1
                         current_sect2 = etree.SubElement(current_sect1, "sect2")
                         current_sect2.set("id", self._get_section_id())
                         t = etree.SubElement(current_sect2, "title")
                         t.text = "Subsection"
 
-                    self._sect3_counter += 1
+                    self._section_counter += 1
                     current_sect3 = etree.SubElement(current_sect2, "sect3")
                     current_sect3.set("id", self._get_section_id())
 
@@ -380,13 +372,14 @@ class DocBookGenerator:
         """
         Generate a Table of Contents with linked entries for all chapters and sections.
 
-        Structure:
+        Structure matches RittDocConverter reference:
         <toc>
           <title>Table of Contents</title>
+          <tocfront linkend="pr0001">Front Matter Title</tocfront>
           <tocchap>
-            <tocentry><link linkend="ch0001">Chapter Title</link></tocentry>
+            <tocentry linkend="ch0001">Chapter Title</tocentry>
             <toclevel1>
-              <tocentry><link linkend="ch0001s0100">Section Title</link></tocentry>
+              <tocentry linkend="ch0001s0001">Section Title</tocentry>
             </toclevel1>
           </tocchap>
         </toc>
@@ -411,9 +404,8 @@ class DocBookGenerator:
             # Create tocchap entry
             tocchap = etree.SubElement(toc, "tocchap")
             tocentry = etree.SubElement(tocchap, "tocentry")
-            link = etree.SubElement(tocentry, "link")
-            link.set("linkend", ch_id)
-            link.text = ch_title
+            tocentry.set("linkend", ch_id)
+            tocentry.text = ch_title
 
             # Find sect1 elements
             for sect1 in chapter.findall('sect1'):
@@ -423,9 +415,8 @@ class DocBookGenerator:
 
                 toclevel1 = etree.SubElement(tocchap, "toclevel1")
                 tocentry1 = etree.SubElement(toclevel1, "tocentry")
-                link1 = etree.SubElement(tocentry1, "link")
-                link1.set("linkend", s1_id)
-                link1.text = s1_title
+                tocentry1.set("linkend", s1_id)
+                tocentry1.text = s1_title
 
                 # Find sect2 elements
                 for sect2 in sect1.findall('sect2'):
@@ -435,9 +426,8 @@ class DocBookGenerator:
 
                     toclevel2 = etree.SubElement(toclevel1, "toclevel2")
                     tocentry2 = etree.SubElement(toclevel2, "tocentry")
-                    link2 = etree.SubElement(tocentry2, "link")
-                    link2.set("linkend", s2_id)
-                    link2.text = s2_title
+                    tocentry2.set("linkend", s2_id)
+                    tocentry2.text = s2_title
 
                     # Find sect3 elements
                     for sect3 in sect2.findall('sect3'):
@@ -447,9 +437,8 @@ class DocBookGenerator:
 
                         toclevel3 = etree.SubElement(toclevel2, "toclevel3")
                         tocentry3 = etree.SubElement(toclevel3, "tocentry")
-                        link3 = etree.SubElement(tocentry3, "link")
-                        link3.set("linkend", s3_id)
-                        link3.text = s3_title
+                        tocentry3.set("linkend", s3_id)
+                        tocentry3.text = s3_title
 
         # Insert TOC after bookinfo (index 1) and before first chapter
         bookinfo = root.find('bookinfo')
@@ -464,9 +453,7 @@ class DocBookGenerator:
         self._chapter_counter += 1
         self._figure_counter = 0
         self._table_counter = 0
-        self._sect1_counter = 0
-        self._sect2_counter = 0
-        self._sect3_counter = 0
+        self._section_counter = 0
         self._current_chapter_code = f"Ch{self._chapter_counter:04d}"
 
         chapter = etree.SubElement(root, "chapter")
