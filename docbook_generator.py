@@ -124,6 +124,9 @@ class DocBookGenerator:
         # Process all elements in document order
         self._process_elements(root, content)
 
+        # Generate Table of Contents with linked entries
+        self._generate_toc(root)
+
         # Post-process: convert "Figure N" / "Table N" references to <link> elements
         self._post_process_references(root)
 
@@ -372,6 +375,89 @@ class DocBookGenerator:
                 self._table_counter += 1
                 table_elem = self._create_table(elem.table)
                 parent.append(table_elem)
+
+    def _generate_toc(self, root: etree._Element):
+        """
+        Generate a Table of Contents with linked entries for all chapters and sections.
+
+        Structure:
+        <toc>
+          <title>Table of Contents</title>
+          <tocchap>
+            <tocentry><link linkend="ch0001">Chapter Title</link></tocentry>
+            <toclevel1>
+              <tocentry><link linkend="ch0001s0100">Section Title</link></tocentry>
+            </toclevel1>
+          </tocchap>
+        </toc>
+
+        Inserted after <bookinfo> and before the first <chapter>.
+        """
+        # Find all chapters
+        chapters = root.findall('chapter')
+        if not chapters:
+            return
+
+        # Create TOC element
+        toc = etree.Element("toc")
+        toc_title = etree.SubElement(toc, "title")
+        toc_title.text = "Table of Contents"
+
+        for chapter in chapters:
+            ch_id = chapter.get('id', '')
+            ch_title_elem = chapter.find('title')
+            ch_title = ch_title_elem.text if ch_title_elem is not None else 'Untitled'
+
+            # Create tocchap entry
+            tocchap = etree.SubElement(toc, "tocchap")
+            tocentry = etree.SubElement(tocchap, "tocentry")
+            link = etree.SubElement(tocentry, "link")
+            link.set("linkend", ch_id)
+            link.text = ch_title
+
+            # Find sect1 elements
+            for sect1 in chapter.findall('sect1'):
+                s1_id = sect1.get('id', '')
+                s1_title_elem = sect1.find('title')
+                s1_title = s1_title_elem.text if s1_title_elem is not None else 'Untitled'
+
+                toclevel1 = etree.SubElement(tocchap, "toclevel1")
+                tocentry1 = etree.SubElement(toclevel1, "tocentry")
+                link1 = etree.SubElement(tocentry1, "link")
+                link1.set("linkend", s1_id)
+                link1.text = s1_title
+
+                # Find sect2 elements
+                for sect2 in sect1.findall('sect2'):
+                    s2_id = sect2.get('id', '')
+                    s2_title_elem = sect2.find('title')
+                    s2_title = s2_title_elem.text if s2_title_elem is not None else 'Untitled'
+
+                    toclevel2 = etree.SubElement(toclevel1, "toclevel2")
+                    tocentry2 = etree.SubElement(toclevel2, "tocentry")
+                    link2 = etree.SubElement(tocentry2, "link")
+                    link2.set("linkend", s2_id)
+                    link2.text = s2_title
+
+                    # Find sect3 elements
+                    for sect3 in sect2.findall('sect3'):
+                        s3_id = sect3.get('id', '')
+                        s3_title_elem = sect3.find('title')
+                        s3_title = s3_title_elem.text if s3_title_elem is not None else 'Untitled'
+
+                        toclevel3 = etree.SubElement(toclevel2, "toclevel3")
+                        tocentry3 = etree.SubElement(toclevel3, "tocentry")
+                        link3 = etree.SubElement(tocentry3, "link")
+                        link3.set("linkend", s3_id)
+                        link3.text = s3_title
+
+        # Insert TOC after bookinfo (index 1) and before first chapter
+        bookinfo = root.find('bookinfo')
+        if bookinfo is not None:
+            insert_idx = list(root).index(bookinfo) + 1
+        else:
+            insert_idx = 0
+        root.insert(insert_idx, toc)
 
     def _ensure_chapter(self, root: etree._Element, title: str) -> etree._Element:
         """Create a default chapter if none exists."""
