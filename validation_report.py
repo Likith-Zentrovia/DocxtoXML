@@ -101,6 +101,7 @@ TITLE_REQUIRED = {'chapter', 'sect1', 'sect2', 'sect3', 'sect4', 'sect5',
 
 # Elements that require specific attributes
 REQUIRED_ATTRIBUTES = {
+    'book': ['id'],
     'tgroup': ['cols'],
     'imagedata': ['fileref'],
     'chapter': ['id'],
@@ -113,6 +114,7 @@ REQUIRED_ATTRIBUTES = {
 
 # ID format patterns
 ID_PATTERNS = {
+    'book': re.compile(r'^b\d{3}$'),
     'chapter': re.compile(r'^ch\d{4}$'),
     'sect1': re.compile(r'^ch\d{4}s\d{4}$'),
     'sect2': re.compile(r'^ch\d{4}s\d{4}$'),
